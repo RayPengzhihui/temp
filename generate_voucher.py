@@ -26,14 +26,18 @@ PROJECT_CATEGORY = '97'   # 项目大类编码
 
 # ── 源列索引（0-based）────────────────────────────
 COL_PROJECT = 3                                       # D   项目编号
-COL_AV = column_index_from_string('AV') - 1          # 47  结转金额（结转类型使用）
-COL_DG = column_index_from_string('DG') - 1          # 110 结转金额（售后运维费用类型使用）
+# 结转类型
+COL_AV = column_index_from_string('AV') - 1          # 47  借方金额
 COL_AW = column_index_from_string('AW') - 1          # 48  贷方明细起始
 COL_BP = column_index_from_string('BP') - 1          # 67  贷方明细结束
+# 售后运维费用类型
+COL_DG = column_index_from_string('DG') - 1          # 110 借方金额
+COL_DH = column_index_from_string('DH') - 1          # 111 贷方明细起始
+COL_EA = column_index_from_string('EA') - 1          # 130 贷方明细结束
+
 COL_FR = column_index_from_string('FR') - 1          # 173 是否结转
 COL_FS = column_index_from_string('FS') - 1          # 174 摘要
 COL_FT = column_index_from_string('FT') - 1          # 175 借方科目
-# FU(176) 部门名称列当前数据全为空，暂不使用
 
 if len(sys.argv) > 1:
     INPUT_FILE = sys.argv[1]
@@ -74,15 +78,24 @@ def load_data():
     return rows
 
 
+def build_credit_cols(row5, start, end):
+    """从第5行提取指定列范围内有科目编码的列 -> {列索引: 科目字符串}"""
+    cols = {}
+    for i in range(start, end + 1):
+        acct = row5[i] if i < len(row5) else None
+        if acct and str(acct).strip():
+            cols[i] = acct_str(acct)
+    return cols
+
+
 def build_voucher_groups(rows):
     row5 = rows[4]  # 第5行：贷方科目行
 
-    # AW-BP 列中，第5行有科目编码的列 -> 科目字符串
-    credit_cols = {}
-    for i in range(COL_AW, COL_BP + 1):
-        acct = row5[i] if i < len(row5) else None
-        if acct and str(acct).strip():
-            credit_cols[i] = acct_str(acct)
+    # 按类型分别构建贷方科目列映射
+    credit_cols_map = {
+        '结转':       build_credit_cols(row5, COL_AW, COL_BP),  # AW-BP
+        '售后运维费用': build_credit_cols(row5, COL_DH, COL_EA),  # DH-EA
+    }
 
     # FR 值 -> 凭证ID 映射
     VOUCHER_ID_MAP = {
@@ -142,9 +155,9 @@ def build_voucher_groups(rows):
         # 借方行
         entries.append(make_entry(True, debit_acct, av_val))
 
-        # 贷方行
+        # 贷方行（按类型选对应贷方列范围）
         credit_total = 0
-        for col_idx, acct in credit_cols.items():
+        for col_idx, acct in credit_cols_map[fr_str].items():
             val = row[col_idx] if col_idx < len(row) else None
             if isinstance(val, (int, float)) and val != 0:
                 entries.append(make_entry(False, acct, val))
