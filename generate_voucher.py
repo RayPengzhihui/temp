@@ -77,8 +77,13 @@ def build_voucher_groups(rows):
         if acct and str(acct).strip():
             credit_cols[i] = acct_str(acct)
 
+    # FR 值 -> 凭证ID 映射
+    VOUCHER_ID_MAP = {
+        '结转':       1,
+        '售后运维费用': 2,
+    }
+
     groups = []
-    voucher_id = 1
 
     for row in rows[6:]:  # 第7行起是数据
         fr_val  = row[COL_FR] if COL_FR < len(row) else None
@@ -87,8 +92,11 @@ def build_voucher_groups(rows):
         ft_val  = row[COL_FT] if COL_FT < len(row) else None
         proj_no = row[COL_PROJECT] if COL_PROJECT < len(row) else None
 
-        if str(fr_val).strip() != '结转':
+        fr_str = str(fr_val).strip()
+        if fr_str not in VOUCHER_ID_MAP:
             continue
+
+        voucher_id = VOUCHER_ID_MAP[fr_str]
         if not isinstance(av_val, (int, float)) or av_val == 0:
             continue
 
@@ -136,7 +144,6 @@ def build_voucher_groups(rows):
 
         if len(entries) > 1:
             groups.append(entries)
-            voucher_id += 1
 
     return groups
 
