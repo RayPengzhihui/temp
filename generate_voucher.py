@@ -1,0 +1,184 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+生产成本结转凭证生成脚本
+输出格式：会计软件导入模板（30列标准格式）
+
+生成规则（参照参考脚本）：
+  - 筛选：FR列="结转" 且 AV列有数字
+  - 借方：科目=FT列，摘要=FS列，金额=AV列
+  - 贷方：AW-BP列中，第5行有5001开头科目 且 当前行有金额 的列
+  - 会计年/会计期间/制单日期/凭证号/制单人 → 留空
+  - 币种名称 → 人民币（借贷行均填）
+  - 凭证ID → 借方和贷方行都填同一编号
+  - 借方科目以66开头或=6901 → 不做项目核算（项目大类/项目编码留空），部门编码填来源值
+  - 贷方行 → 项目大类编码和项目编码始终填写
+"""
+
+import sys
+import openpyxl
+import xlwt
+from openpyxl.utils import column_index_from_string
+
+# ── 可配置字段 ─────────────────────────────────────
+VOUCHER_TYPE     = '转'   # 凭证类别
+PROJECT_CATEGORY = '97'   # 项目大类编码
+
+# ── 源列索引（0-based）────────────────────────────
+COL_PROJECT = 3                                       # D  项目编号
+COL_AV = column_index_from_string('AV') - 1          # 47 结转金额合计
+COL_AW = column_index_from_string('AW') - 1          # 48 贷方明细起始
+COL_BP = column_index_from_string('BP') - 1          # 67 贷方明细结束
+COL_FR = column_index_from_string('FR') - 1          # 173 是否结转
+COL_FS = column_index_from_string('FS') - 1          # 174 摘要
+COL_FT = column_index_from_string('FT') - 1          # 175 借方科目
+# FU(176) 部门名称列当前数据全为空，暂不使用
+
+INPUT_FILE  = sys.argv[1] if len(sys.argv) > 1 else '生产成本0612.xlsx'
+OUTPUT_FILE = '凭证.xls'
+
+# 输出文件列头（30列标准格式）
+HEADERS = [
+    '凭证ID', '会计年', '会计期间', '制单日期', '凭证类别', '凭证号', '制单人',
+    '所附单据数', '备注1', '备注2',
+    '科目编码', '摘要', '结算方式编码', '票据号', '票据日期', '币种名称', '汇率',
+    '单价', '借方数量', '贷方数量', '原币借方', '原币贷方',
+    '借方金额', '贷方金额',
+    '部门编码', '职员编码', '客户编码', '供应商编码',
+    '项目大类编码', '项目编码',
+]
+
+# 输出列索引
+H = {h: i for i, h in enumerate(HEADERS)}
+
+
+def acct_str(val):
+    """科目编码转字符串（去掉浮点小数点）"""
+    if isinstance(val, float):
+        return str(int(val))
+    return str(val).strip() if val else ''
+
+
+def load_data():
+    wb = openpyxl.load_workbook(INPUT_FILE, read_only=True, data_only=True)
+    ws = wb['生产成本']
+    rows = list(ws.iter_rows(values_only=True))
+    wb.close()
+    return rows
+
+
+def build_voucher_groups(rows):
+    row5 = rows[4]  # 第5行：贷方科目行
+
+    # AW-BP 列中，第5行有科目编码的列 -> 科目字符串
+    credit_cols = {}
+    for i in range(COL_AW, COL_BP + 1):
+        acct = row5[i] if i < len(row5) else None
+        if acct and str(acct).strip():
+            credit_cols[i] = acct_str(acct)
+
+    groups = []
+    voucher_id = 1
+
+    for row in rows[6:]:  # 第7行起是数据
+        fr_val  = row[COL_FR] if COL_FR < len(row) else None
+        av_val  = row[COL_AV] if COL_AV < len(row) else None
+        fs_val  = row[COL_FS] if COL_FS < len(row) else None
+        ft_val  = row[COL_FT] if COL_FT < len(row) else None
+        proj_no = row[COL_PROJECT] if COL_PROJECT < len(row) else None
+
+        if str(fr_val).strip() != '结转':
+            continue
+        if not isinstance(av_val, (int, float)) or av_val == 0:
+            continue
+
+        summary    = str(fs_val).strip() if fs_val else ''
+        debit_acct = acct_str(ft_val)
+        proj_str   = str(proj_no).strip() if proj_no else ''
+
+        # 是否需要项目核算（借方科目以66开头或等于6901则不需要）
+        need_proj = not (debit_acct.startswith('66') or debit_acct == '6901')
+
+        def make_entry(is_debit, account, amount):
+            r = [''] * len(HEADERS)
+            r[H['凭证ID']]   = voucher_id
+            r[H['凭证类别']] = VOUCHER_TYPE
+            r[H['科目编码']] = account
+            r[H['摘要']]     = summary
+            r[H['币种名称']] = '人民币'
+            if is_debit:
+                r[H['借方金额']]    = round(float(amount), 2)
+                # 借方科目以66开头时填部门编码（当前数据暂无，留空）
+                r[H['部门编码']]    = ''
+                r[H['项目大类编码']] = PROJECT_CATEGORY if need_proj else ''
+                r[H['项目编码']]    = proj_str if need_proj else ''
+            else:
+                r[H['贷方金额']]    = round(float(amount), 2)
+                r[H['项目大类编码']] = PROJECT_CATEGORY
+                r[H['项目编码']]    = proj_str
+            return r
+
+        entries = []
+        # 借方行
+        entries.append(make_entry(True, debit_acct, av_val))
+
+        # 贷方行
+        credit_total = 0
+        for col_idx, acct in credit_cols.items():
+            val = row[col_idx] if col_idx < len(row) else None
+            if isinstance(val, (int, float)) and val != 0:
+                entries.append(make_entry(False, acct, val))
+                credit_total += val
+
+        # 借贷平衡检查
+        if abs(av_val - credit_total) > 0.01:
+            print(f'  警告: {proj_str} 借贷不平衡: 借方={av_val}, 贷方合计={credit_total:.2f}')
+
+        if len(entries) > 1:
+            groups.append(entries)
+            voucher_id += 1
+
+    return groups
+
+
+def write_xls(groups):
+    wb_out = xlwt.Workbook(encoding='utf-8')
+    ws = wb_out.add_sheet('Sheet1')
+
+    for col, h in enumerate(HEADERS):
+        ws.write(0, col, h)
+
+    row_idx = 1
+    for group in groups:
+        for entry in group:
+            for col, val in enumerate(entry):
+                ws.write(row_idx, col, val)
+            row_idx += 1
+
+    wb_out.save(OUTPUT_FILE)
+    return row_idx - 1
+
+
+def main():
+    print(f'读取 {INPUT_FILE} ...')
+    rows = load_data()
+
+    groups = build_voucher_groups(rows)
+    total = sum(len(g) for g in groups)
+    print(f'找到 {len(groups)} 条结转凭证，共 {total} 行分录')
+
+    write_xls(groups)
+    print(f'已生成 {OUTPUT_FILE}')
+
+    print('\n前3条凭证预览：')
+    for g in groups[:3]:
+        print('─' * 72)
+        for e in g:
+            d = f"{e[H['借方金额']]:>12.2f}" if e[H['借方金额']] != '' else ' ' * 12
+            c = f"{e[H['贷方金额']]:>12.2f}" if e[H['贷方金额']] != '' else ' ' * 12
+            print(f"  ID:{e[H['凭证ID']]:>4}  科目:{e[H['科目编码']]:<14} 借:{d}  贷:{c}  "
+                  f"项目:{e[H['项目编码']]}  币种:{e[H['币种名称']]}")
+
+
+if __name__ == '__main__':
+    main()
