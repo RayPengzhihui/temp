@@ -25,10 +25,11 @@ VOUCHER_TYPE     = '转'   # 凭证类别
 PROJECT_CATEGORY = '97'   # 项目大类编码
 
 # ── 源列索引（0-based）────────────────────────────
-COL_PROJECT = 3                                       # D  项目编号
-COL_AV = column_index_from_string('AV') - 1          # 47 结转金额合计
-COL_AW = column_index_from_string('AW') - 1          # 48 贷方明细起始
-COL_BP = column_index_from_string('BP') - 1          # 67 贷方明细结束
+COL_PROJECT = 3                                       # D   项目编号
+COL_AV = column_index_from_string('AV') - 1          # 47  结转金额（结转类型使用）
+COL_DG = column_index_from_string('DG') - 1          # 110 结转金额（售后运维费用类型使用）
+COL_AW = column_index_from_string('AW') - 1          # 48  贷方明细起始
+COL_BP = column_index_from_string('BP') - 1          # 67  贷方明细结束
 COL_FR = column_index_from_string('FR') - 1          # 173 是否结转
 COL_FS = column_index_from_string('FS') - 1          # 174 摘要
 COL_FT = column_index_from_string('FT') - 1          # 175 借方科目
@@ -93,7 +94,6 @@ def build_voucher_groups(rows):
 
     for row in rows[6:]:  # 第7行起是数据
         fr_val  = row[COL_FR] if COL_FR < len(row) else None
-        av_val  = row[COL_AV] if COL_AV < len(row) else None
         fs_val  = row[COL_FS] if COL_FS < len(row) else None
         ft_val  = row[COL_FT] if COL_FT < len(row) else None
         proj_no = row[COL_PROJECT] if COL_PROJECT < len(row) else None
@@ -103,6 +103,12 @@ def build_voucher_groups(rows):
             continue
 
         voucher_id = VOUCHER_ID_MAP[fr_str]
+
+        # 按类型选取借方金额列
+        if fr_str == '售后运维费用':
+            av_val = row[COL_DG] if COL_DG < len(row) else None
+        else:
+            av_val = row[COL_AV] if COL_AV < len(row) else None
         if not isinstance(av_val, (int, float)) or av_val == 0:
             continue
 
