@@ -34,7 +34,13 @@ COL_FS = column_index_from_string('FS') - 1          # 174 摘要
 COL_FT = column_index_from_string('FT') - 1          # 175 借方科目
 # FU(176) 部门名称列当前数据全为空，暂不使用
 
-INPUT_FILE  = sys.argv[1] if len(sys.argv) > 1 else '生产成本0612.xlsx'
+if len(sys.argv) > 1:
+    INPUT_FILE = sys.argv[1]
+else:
+    print('============================================')
+    print('  生产成本结转凭证生成工具')
+    print('============================================')
+    INPUT_FILE = input('请输入文件名（如 生产成本0713.xlsx）：').strip()
 OUTPUT_FILE = '凭证.xls'
 
 # 输出文件列头（30列标准格式）
@@ -189,3 +195,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+    input('\n按回车键退出...')
