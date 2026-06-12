@@ -38,6 +38,7 @@ COL_EA = column_index_from_string('EA') - 1          # 130 贷方明细结束
 COL_FR = column_index_from_string('FR') - 1          # 173 是否结转
 COL_FS = column_index_from_string('FS') - 1          # 174 摘要
 COL_FT = column_index_from_string('FT') - 1          # 175 借方科目
+COL_FU = column_index_from_string('FU') - 1          # 176 部门编码（售后运维费用借方使用）
 
 if len(sys.argv) > 1:
     INPUT_FILE = sys.argv[1]
@@ -109,6 +110,7 @@ def build_voucher_groups(rows):
         fr_val  = row[COL_FR] if COL_FR < len(row) else None
         fs_val  = row[COL_FS] if COL_FS < len(row) else None
         ft_val  = row[COL_FT] if COL_FT < len(row) else None
+        fu_val  = row[COL_FU] if COL_FU < len(row) else None
         proj_no = row[COL_PROJECT] if COL_PROJECT < len(row) else None
 
         fr_str = str(fr_val).strip()
@@ -127,6 +129,7 @@ def build_voucher_groups(rows):
 
         summary    = str(fs_val).strip() if fs_val else ''
         debit_acct = acct_str(ft_val)
+        dept_code  = str(fu_val).strip() if fu_val else ''
         proj_str   = str(proj_no).strip() if proj_no else ''
 
         # 是否需要项目核算（借方科目以66开头或等于6901则不需要）
@@ -141,8 +144,8 @@ def build_voucher_groups(rows):
             r[H['币种名称']] = '人民币'
             if is_debit:
                 r[H['借方金额']]    = round(float(amount), 2)
-                # 借方科目以66开头时填部门编码（当前数据暂无，留空）
-                r[H['部门编码']]    = ''
+                # 售后运维费用类型借方填部门编码（FU列）
+                r[H['部门编码']]    = dept_code if fr_str == '售后运维费用' else ''
                 r[H['项目大类编码']] = PROJECT_CATEGORY if need_proj else ''
                 r[H['项目编码']]    = proj_str if need_proj else ''
             else:
